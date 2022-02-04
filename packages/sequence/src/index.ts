@@ -7,7 +7,15 @@ import { Connector } from '@web3-react/types'
 import { sequence } from '0xsequence'
 import { WalletProvider } from '0xsequence/dist/declarations/src/provider';
 
-declare const window: any
+interface InjectedEthereumProvider extends Provider {
+  isSequence?: boolean;
+}
+
+declare global {
+  interface Window {
+      ethereum?: InjectedEthereumProvider;
+  }
+}
 
 export interface SequenceOptions {
   appName?: string;
@@ -35,8 +43,12 @@ export class Sequence extends Connector {
     this.options = options
 
     if (connectEagerly) {
-      this.activate();
+      this.initialize().catch(e => console.error(e));
     }
+  }
+
+  private async initialize () {
+    await this.activate().catch(e => console.error(e))
   }
 
   private disconnectListener = (error?: ProviderRpcError): void => {
@@ -51,7 +63,7 @@ export class Sequence extends Connector {
     this.actions.update({ accounts })
   }
 
-  private async listenToEvents(): Promise<void> {
+  private listenToEvents(): void {
     if (this.provider) {
       this.provider.on('disconnect', this.disconnectListener)
       this.provider.on('accountsChanged', this.accountsChangedListener)
@@ -61,7 +73,8 @@ export class Sequence extends Connector {
 
   public async activate(defaultNetwork?: string | number): Promise<void> {
     const cancelActivation = this.actions.startActivation()
-
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
     if (window?.ethereum && window.ethereum.isSequence) {
       this.provider = window.ethereum;
       if (this.provider) {
@@ -81,46 +94,58 @@ export class Sequence extends Connector {
     // disconnect prior to reconnecting to allow network switching by removing the previous connection
     wallet.disconnect();
 
-    if (!wallet.isConnected()) {
-      const connectDetails = await wallet.connect({
-        app: this.options?.appName || 'app',
-        authorize: true
-      });
-  
-      if (!connectDetails.connected) {
-        cancelActivation();
-        this.actions.reportError(new Error("Failed to connect"))
+    try {
+      if (!wallet.isConnected()) {
+        const connectDetails = await wallet.connect({
+          app: this.options?.appName || 'app',
+          authorize: true
+        });
+    
+        if (!connectDetails.connected) {
+          cancelActivation();
+          this.actions.reportError(new Error("Failed to connect"))
+        }
       }
-    }
-  
-    // The check for connection is necessary in case the user closes the popup or cancels
-    if (wallet.isConnected()) {
-      // @ts-ignore
-      this.provider = wallet.getProvider();
-      const walletAddress = await wallet.getAddress()
-      const chainId = await wallet.getChainId()
-      this.actions.update({
-        chainId: parseChainId(chainId),
-        accounts: [
-          walletAddress,
-        ],
-      })
-      // @ts-ignore
-      this.provider.sequence = wallet;
-      this.wallet = wallet;
-      this.listenToEvents();
+    
+      // The check for connection is necessary in case the user closes the popup or cancels
+      if (wallet.isConnected()) {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        this.provider = wallet.getProvider();
+        const walletAddress = await wallet.getAddress()
+        const chainId = await wallet.getChainId()
+        this.actions.update({
+          chainId: parseChainId(chainId),
+          accounts: [
+            walletAddress,
+          ],
+        })
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        this.provider.sequence = wallet;
+        this.wallet = wallet;
+        this.listenToEvents()
+      }
+    } catch(e) {
+      cancelActivation()
+      this.actions.reportError(new Error('Failed to connect'))
     }
   }
 
   public async deactivate(): Promise<void> {
-    this.wallet?.disconnect();
-    this.wallet = undefined;
-    this.provider?.off('disconnect', this.disconnectListener)
-    this.provider?.off('chainChanged', this.chainChangedListener)
-    this.provider?.off('accountsChanged', this.accountsChangedListener)
-    this.provider = undefined
-    // Workaround for setting the isActive value to false upon disconnect
-    this.actions.reportError(new Error('Disconnected'))
-    this.actions.reportError(undefined)
+    return (
+      new Promise((resolve) => {
+        this.wallet?.disconnect()
+        this.wallet = undefined
+        this.provider?.off('disconnect', this.disconnectListener)
+        this.provider?.off('chainChanged', this.chainChangedListener)
+        this.provider?.off('accountsChanged', this.accountsChangedListener)
+        this.provider = undefined
+        // Workaround for setting the isActive value to false upon disconnect
+        this.actions.reportError(new Error('Disconnected'))
+        this.actions.reportError(undefined)
+        resolve();
+      })
+    )
   }
 }
