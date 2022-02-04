@@ -13,14 +13,6 @@ export interface SequenceOptions {
   appName?: string;
 }
 
-export class NoSequenceError extends Error {
-  public constructor() {
-    super('Sequence not installed')
-    this.name = NoSequenceError.name
-    Object.setPrototypeOf(this, NoSequenceError.prototype)
-  }
-}
-
 function parseChainId(chainId: string | number) {
   if (typeof chainId === 'number') {
     return chainId
@@ -32,7 +24,6 @@ export class Sequence extends Connector {
   public provider: Provider | undefined;
 
   private wallet?: WalletProvider
-  private eagerConnection?: Promise<void>
   private readonly options?: SequenceOptions
 
   /**
@@ -44,7 +35,7 @@ export class Sequence extends Connector {
     this.options = options
 
     if (connectEagerly) {
-      this.eagerConnection = this.activate();
+      this.activate();
     }
   }
 
@@ -87,6 +78,9 @@ export class Sequence extends Connector {
   
     const wallet = new sequence.Wallet(defaultNetwork || 'mainnet');
   
+    // disconnect prior to reconnecting to allow network switching by removing the previous connection
+    wallet.disconnect();
+
     if (!wallet.isConnected()) {
       const connectDetails = await wallet.connect({
         app: this.options?.appName || 'app',
@@ -125,7 +119,6 @@ export class Sequence extends Connector {
     this.provider?.off('chainChanged', this.chainChangedListener)
     this.provider?.off('accountsChanged', this.accountsChangedListener)
     this.provider = undefined
-    this.eagerConnection = undefined
     // Workaround for setting the isActive value to false upon disconnect
     this.actions.reportError(new Error('Disconnected'))
     this.actions.reportError(undefined)
