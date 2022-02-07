@@ -79,7 +79,15 @@ export class Sequence extends Connector {
       this.provider = window.ethereum;
       if (this.provider) {
         try {
-          await this.provider.request({ method: 'eth_requestAccounts' })
+          const accounts: any = await this.provider.request({ method: 'eth_requestAccounts' })
+          let chainId: any = await this.provider.request({ method: 'eth_chainId' })
+          chainId = parseChainId(chainId);
+          this.actions.update({
+            chainId: parseChainId(chainId),
+            accounts: [
+              accounts[0],
+            ],
+          })
           this.listenToEvents();
         } catch (error) {
           cancelActivation();
